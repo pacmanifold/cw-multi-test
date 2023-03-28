@@ -235,6 +235,11 @@ impl Module for BankKeeper {
     }
 }
 
+// Temp solution to get the query service paths. TODO: Figure out how to get this from the proto files (PR to osmosis-rust?)
+const QUERY_ALL_BALANCES_PATH: &str = "/cosmos.bank.v1beta1.Query/AllBalances";
+const QUERY_BALANCE_PATH: &str = "/cosmos.bank.v1beta1.Query/Balance";
+const QUERY_SUPPLY_PATH: &str = "/cosmos.bank.v1beta1.Query/SupplyOf";
+
 impl StargateQueryHandler for BankKeeper {
     fn stargate_query(
         &self,
@@ -245,7 +250,7 @@ impl StargateQueryHandler for BankKeeper {
         request: crate::StargateMsg,
     ) -> anyhow::Result<Binary> {
         match request.type_url.as_str() {
-            QueryAllBalancesRequest::TYPE_URL => {
+            QUERY_ALL_BALANCES_PATH => {
                 let msg: QueryAllBalancesRequest = request.value.try_into()?;
                 let bin_res = self.query(
                     api,
@@ -269,7 +274,7 @@ impl StargateQueryHandler for BankKeeper {
                 };
                 Ok(to_binary(&res)?)
             }
-            QueryBalanceRequest::TYPE_URL => {
+            QUERY_BALANCE_PATH => {
                 let req: QueryBalanceRequest = request.value.try_into()?;
                 let bin_res = self.query(
                     api,
@@ -289,7 +294,7 @@ impl StargateQueryHandler for BankKeeper {
 
                 Ok(to_binary(&res)?)
             }
-            QuerySupplyOfRequest::TYPE_URL => {
+            QUERY_SUPPLY_PATH => {
                 let req: QuerySupplyOfRequest = request.value.try_into()?;
                 let req = BankQuery::Supply { denom: req.denom };
 
@@ -310,9 +315,9 @@ impl StargateQueryHandler for BankKeeper {
         &'static self,
         keeper: &mut crate::StargateKeeper<cosmwasm_std::Empty, cosmwasm_std::Empty>,
     ) {
-        keeper.register_query(QueryBalanceRequest::TYPE_URL, Box::new(self.clone()));
-        keeper.register_query(QueryAllBalancesRequest::TYPE_URL, Box::new(self.clone()));
-        keeper.register_query(QuerySupplyOfRequest::TYPE_URL, Box::new(self.clone()));
+        keeper.register_query(QUERY_ALL_BALANCES_PATH, Box::new(self.clone()));
+        keeper.register_query(QUERY_BALANCE_PATH, Box::new(self.clone()));
+        keeper.register_query(QUERY_SUPPLY_PATH, Box::new(self.clone()));
     }
 }
 
