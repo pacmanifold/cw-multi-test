@@ -139,12 +139,8 @@ impl<'a, ExecC, QueryC: CustomQuery> Stargate<ExecC, QueryC> for StargateKeeper<
         block: &cosmwasm_std::BlockInfo,
         request: StargateMsg,
     ) -> anyhow::Result<cosmwasm_std::Binary> {
-        println!("StargateKeeper::query");
         match self.queries.get(&request.type_url.to_string()) {
-            Some(handler) => {
-                println!("StargateKeeper::query: found handler");
-                handler.stargate_query(api, storage, querier, block, request)
-            }
+            Some(handler) => handler.stargate_query(api, storage, querier, block, request),
             None => bail!("Unsupported stargate query: {}", request.type_url),
         }
     }
@@ -152,13 +148,19 @@ impl<'a, ExecC, QueryC: CustomQuery> Stargate<ExecC, QueryC> for StargateKeeper<
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Ok;
-    use cosmwasm_std::{from_binary, to_binary, CosmosMsg, Event, QueryRequest};
+    use std::str::FromStr;
 
-    use crate::{BasicAppBuilder, Executor};
+    use anyhow::Ok;
+    use cosmwasm_std::{coin, from_binary, to_binary, Coin, CosmosMsg, Event, QueryRequest};
+    use osmosis_std::types::cosmos::bank::v1beta1::{
+        QueryAllBalancesRequest, QueryBalanceRequest, QuerySupplyOfRequest,
+    };
+
+    use crate::{BankKeeper, BasicAppBuilder, Executor};
 
     use super::*;
 
+    #[derive(Clone)]
     struct FooHandler;
     impl StargateMessageHandler<Empty, Empty> for FooHandler {
         fn execute(
@@ -178,11 +180,12 @@ mod tests {
         }
 
         fn register_msgs(&'static self, keeper: &mut StargateKeeper<Empty, Empty>) {
-            keeper.register_msg("foo", Box::new(*self))
+            keeper.register_msg("foo", Box::new(self.clone()))
         }
     }
     const FOO_HANDLER: FooHandler = FooHandler;
 
+    #[derive(Clone)]
     struct FooQueryHandler;
     impl StargateQueryHandler for FooQueryHandler {
         fn stargate_query(
@@ -200,11 +203,12 @@ mod tests {
         }
 
         fn register_queries(&'static self, keeper: &mut StargateKeeper<Empty, Empty>) {
-            keeper.register_query("foo", Box::new(*self))
+            keeper.register_query("foo", Box::new(self.clone()))
         }
     }
     const FOO_QUERY_HANDLER: FooQueryHandler = FooQueryHandler;
 
+    #[derive(Clone)]
     struct BarHandler;
     impl StargateMessageHandler<Empty, Empty> for BarHandler {
         fn execute(
