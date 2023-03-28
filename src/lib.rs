@@ -34,3 +34,4 @@ pub use crate::ibc::Ibc;
 pub use crate::module::{FailingModule, Module};
 pub use crate::staking::{DistributionKeeper, StakeKeeper, Staking, StakingInfo, StakingSudo};
 pub use crate::wasm::{AddressGenerator, Wasm, WasmKeeper, WasmSudo};
+pub use stargate::*;
