@@ -20,6 +20,7 @@ mod prefixed_storage;
 mod staking;
 mod stargate;
 mod test_helpers;
+mod token_factory;
 mod transactions;
 mod wasm;
 

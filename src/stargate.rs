@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use anyhow::bail;
 use cosmwasm_std::{Addr, Api, Binary, BlockInfo, CosmosMsg, CustomQuery, Empty, Querier, Storage};
+use osmosis_std::types::cosmos::bank::v1beta1::QueryBalanceRequest;
 
 use crate::{AppResponse, CosmosRouter};
 
 // TODO: turn into extensions of Fn trait
 pub trait StargateQueryHandler {
-    fn query(
+    fn stargate_query(
         &self,
         api: &dyn Api,
         storage: &dyn Storage,
@@ -142,7 +143,7 @@ impl<ExecC, QueryC: CustomQuery> Stargate<ExecC, QueryC> for StargateKeeper<Exec
         match self.queries.get(&request.type_url.to_string()) {
             Some(handler) => {
                 println!("StargateKeeper::query: found handler");
-                handler.query(api, storage, querier, block, request)
+                handler.stargate_query(api, storage, querier, block, request)
             }
             None => bail!("Unsupported stargate query: {}", request.type_url),
         }
@@ -180,7 +181,7 @@ mod tests {
 
     struct FooQueryHandler;
     impl StargateQueryHandler for FooQueryHandler {
-        fn query(
+        fn stargate_query(
             &self,
             _api: &dyn Api,
             _storage: &dyn Storage,

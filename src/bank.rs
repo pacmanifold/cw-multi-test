@@ -1,10 +1,15 @@
 use anyhow::{bail, Result as AnyResult};
 use itertools::Itertools;
+use osmosis_std::types::cosmos::bank::v1beta1::{
+    QueryAllBalancesRequest, QueryAllBalancesResponse, QueryBalanceRequest, QueryBalanceResponse,
+    QuerySupplyOfRequest, QuerySupplyOfResponse,
+};
 use schemars::JsonSchema;
 
 use cosmwasm_std::{
-    coin, to_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg, BankQuery, Binary,
-    BlockInfo, Coin, Event, Order, Querier, StdResult, Storage, SupplyResponse, Uint128,
+    coin, from_binary, to_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg,
+    BankQuery, Binary, BlockInfo, Coin, Event, Order, Querier, StdResult, Storage, SupplyResponse,
+    Uint128,
 };
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
@@ -13,6 +18,7 @@ use crate::app::CosmosRouter;
 use crate::executor::AppResponse;
 use crate::module::Module;
 use crate::prefixed_storage::{prefixed, prefixed_read};
+use crate::StargateQueryHandler;
 
 const BALANCES: Map<&Addr, NativeBalance> = Map::new("balances");
 
@@ -225,6 +231,78 @@ impl Module for BankKeeper {
                 Ok(to_binary(&res)?)
             }
             q => bail!("Unsupported bank query: {:?}", q),
+        }
+    }
+}
+
+impl StargateQueryHandler for BankKeeper {
+    fn stargate_query(
+        &self,
+        api: &dyn Api,
+        storage: &dyn Storage,
+        querier: &dyn Querier,
+        block: &BlockInfo,
+        request: crate::StargateMsg,
+    ) -> anyhow::Result<Binary> {
+        match request.type_url.as_str() {
+            QueryAllBalancesRequest::TYPE_URL => {
+                let msg: QueryAllBalancesRequest = request.value.try_into()?;
+                let bin_res = self.query(
+                    api,
+                    storage,
+                    querier,
+                    block,
+                    BankQuery::AllBalances {
+                        address: msg.address,
+                    },
+                )?;
+
+                let bank_res: AllBalanceResponse = from_binary(&bin_res)?;
+
+                let res = QueryAllBalancesResponse {
+                    balances: bank_res
+                        .amount
+                        .into_iter()
+                        .map(|c| c.into())
+                        .collect::<Vec<_>>(),
+                    pagination: None,
+                };
+                Ok(to_binary(&res)?)
+            }
+            QueryBalanceRequest::TYPE_URL => {
+                let req: QueryBalanceRequest = request.value.try_into()?;
+                let bin_res = self.query(
+                    api,
+                    storage,
+                    querier,
+                    block,
+                    BankQuery::Balance {
+                        address: req.address,
+                        denom: req.denom,
+                    },
+                )?;
+
+                let res: BalanceResponse = from_binary(&bin_res)?;
+                let res = QueryBalanceResponse {
+                    balance: Some(res.amount.into()),
+                };
+
+                Ok(to_binary(&res)?)
+            }
+            QuerySupplyOfRequest::TYPE_URL => {
+                let req: QuerySupplyOfRequest = request.value.try_into()?;
+                let req = BankQuery::Supply { denom: req.denom };
+
+                let bin_res = self.query(api, storage, querier, block, req)?;
+
+                let res: SupplyResponse = from_binary(&bin_res)?;
+                let res = QuerySupplyOfResponse {
+                    amount: Some(res.amount.into()),
+                };
+
+                Ok(to_binary(&res)?)
+            }
+            _ => bail!("Unsupported bank query: {}", request.type_url),
         }
     }
 }
