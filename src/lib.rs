@@ -142,6 +142,7 @@ mod staking;
 mod stargate;
 mod test_helpers;
 mod tests;
+mod token_factory;
 mod transactions;
 mod wasm;
 
