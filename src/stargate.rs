@@ -16,6 +16,8 @@ pub trait StargateQueryHandler {
         block: &BlockInfo,
         request: StargateMsg,
     ) -> anyhow::Result<Binary>;
+
+    fn register_queries(&'static self, keeper: &mut StargateKeeper<Empty, Empty>);
 }
 
 pub trait StargateMessageHandler<ExecC, QueryC: CustomQuery> {
@@ -28,14 +30,16 @@ pub trait StargateMessageHandler<ExecC, QueryC: CustomQuery> {
         sender: Addr,
         msg: StargateMsg,
     ) -> anyhow::Result<AppResponse>;
+
+    fn register_msgs(&'static self, keeper: &mut StargateKeeper<Empty, Empty>);
 }
 
-pub struct StargateKeeper<ExecC: 'static, QueryC: 'static> {
-    messages: HashMap<String, &'static dyn StargateMessageHandler<ExecC, QueryC>>,
-    queries: HashMap<String, &'static dyn StargateQueryHandler>,
+pub struct StargateKeeper<ExecC, QueryC> {
+    messages: HashMap<String, Box<dyn StargateMessageHandler<ExecC, QueryC>>>,
+    queries: HashMap<String, Box<dyn StargateQueryHandler>>,
 }
 
-impl<ExecC, QueryC> StargateKeeper<ExecC, QueryC> {
+impl<'a, ExecC, QueryC> StargateKeeper<ExecC, QueryC> {
     pub fn new() -> Self {
         Self {
             messages: HashMap::new(),
@@ -46,17 +50,13 @@ impl<ExecC, QueryC> StargateKeeper<ExecC, QueryC> {
     pub fn register_msg(
         &mut self,
         type_url: &str,
-        handler: &'static dyn StargateMessageHandler<ExecC, QueryC>,
+        handler: Box<dyn StargateMessageHandler<ExecC, QueryC>>,
     ) {
-        self.messages.insert(
-            type_url.to_string(),
-            handler as &'static dyn StargateMessageHandler<ExecC, QueryC>,
-        );
+        self.messages.insert(type_url.to_string(), handler);
     }
 
-    pub fn register_query(&mut self, type_url: &str, handler: &'static dyn StargateQueryHandler) {
-        self.queries
-            .insert(type_url.to_string(), handler as &dyn StargateQueryHandler);
+    pub fn register_query(&mut self, type_url: &str, handler: Box<dyn StargateQueryHandler>) {
+        self.queries.insert(type_url.to_string(), handler);
     }
 }
 
@@ -104,7 +104,7 @@ pub trait Stargate<ExecC, QueryC> {
     ) -> anyhow::Result<cosmwasm_std::Binary>;
 }
 
-impl<ExecC, QueryC: CustomQuery> Stargate<ExecC, QueryC> for StargateKeeper<ExecC, QueryC> {
+impl<'a, ExecC, QueryC: CustomQuery> Stargate<ExecC, QueryC> for StargateKeeper<ExecC, QueryC> {
     fn execute(
         &self,
         api: &dyn Api,
@@ -176,6 +176,10 @@ mod tests {
                 .push(Event::new("foo").add_attribute("bar", num.to_string()));
             Ok(res)
         }
+
+        fn register_msgs(&'static self, keeper: &mut StargateKeeper<Empty, Empty>) {
+            keeper.register_msg("foo", Box::new(*self))
+        }
     }
     const FOO_HANDLER: FooHandler = FooHandler;
 
@@ -193,6 +197,10 @@ mod tests {
             let bin = to_binary(&format!("bar{:?}", num)).unwrap();
             println!("post bin conversion");
             Ok(bin)
+        }
+
+        fn register_queries(&'static self, keeper: &mut StargateKeeper<Empty, Empty>) {
+            keeper.register_query("foo", Box::new(*self))
         }
     }
     const FOO_QUERY_HANDLER: FooQueryHandler = FooQueryHandler;
@@ -223,6 +231,10 @@ mod tests {
 
             Ok(res)
         }
+
+        fn register_msgs(&'static self, keeper: &mut StargateKeeper<Empty, Empty>) {
+            keeper.register_msg("bar", Box::new(self.clone()))
+        }
     }
     const BAR_HANDLER: BarHandler = BarHandler;
 
@@ -234,7 +246,7 @@ mod tests {
     #[test]
     fn register_and_call_stargate_msg() {
         let mut stargate_keeper = StargateKeeper::new();
-        stargate_keeper.register_msg("foo", &FOO_HANDLER);
+        stargate_keeper.register_msg("foo", Box::new(FOO_HANDLER));
 
         let mut app = BasicAppBuilder::<Empty, Empty>::new()
             .with_stargate(stargate_keeper)
@@ -256,7 +268,7 @@ mod tests {
     #[test]
     fn register_and_call_stargate_query() {
         let mut stargate_keeper = StargateKeeper::new();
-        stargate_keeper.register_query("foo", &FOO_QUERY_HANDLER);
+        stargate_keeper.register_query("foo", Box::new(FOO_QUERY_HANDLER));
 
         let app = BasicAppBuilder::<Empty, Empty>::new()
             .with_stargate(stargate_keeper)
@@ -277,8 +289,8 @@ mod tests {
     #[test]
     fn query_inside_execution() {
         let mut stargate_keeper = StargateKeeper::new();
-        stargate_keeper.register_msg("bar", &BAR_HANDLER);
-        stargate_keeper.register_query("foo", &FOO_QUERY_HANDLER);
+        stargate_keeper.register_msg("bar", Box::new(BAR_HANDLER));
+        stargate_keeper.register_query("foo", Box::new(FOO_QUERY_HANDLER));
 
         let mut app = BasicAppBuilder::<Empty, Empty>::new()
             .with_stargate(stargate_keeper)

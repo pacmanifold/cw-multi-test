@@ -35,7 +35,7 @@ pub enum BankSudo {
 
 pub trait Bank: Module<ExecT = BankMsg, QueryT = BankQuery, SudoT = BankSudo> {}
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct BankKeeper {}
 
 impl BankKeeper {
@@ -304,6 +304,15 @@ impl StargateQueryHandler for BankKeeper {
             }
             _ => bail!("Unsupported bank query: {}", request.type_url),
         }
+    }
+
+    fn register_queries(
+        &'static self,
+        keeper: &mut crate::StargateKeeper<cosmwasm_std::Empty, cosmwasm_std::Empty>,
+    ) {
+        keeper.register_query(QueryBalanceRequest::TYPE_URL, Box::new(self.clone()));
+        keeper.register_query(QueryAllBalancesRequest::TYPE_URL, Box::new(self.clone()));
+        keeper.register_query(QuerySupplyOfRequest::TYPE_URL, Box::new(self.clone()));
     }
 }
 
