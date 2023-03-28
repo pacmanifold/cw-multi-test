@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 
 use cosmwasm_std::{
     coin, to_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg, BankQuery, Binary,
-    BlockInfo, Coin, Event, Querier, Storage,
+    BlockInfo, Coin, Event, Order, Querier, StdResult, Storage, SupplyResponse, Uint128,
 };
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
@@ -65,6 +65,19 @@ impl BankKeeper {
     fn get_balance(&self, bank_storage: &dyn Storage, account: &Addr) -> AnyResult<Vec<Coin>> {
         let val = BALANCES.may_load(bank_storage, account)?;
         Ok(val.unwrap_or_default().into_vec())
+    }
+
+    fn get_supply(&self, bank_storage: &dyn Storage, denom: &str) -> AnyResult<Uint128> {
+        Ok(BALANCES
+            .range(bank_storage, None, None, Order::Ascending)
+            .map(|item| item.map(|i| i.1.into_vec()))
+            .map(|coins| coins)
+            .collect::<StdResult<Vec<Vec<Coin>>>>()?
+            .into_iter()
+            .flatten()
+            .filter(|c| &c.denom == denom)
+            .map(|c| c.amount)
+            .sum::<Uint128>())
     }
 
     fn send(
@@ -203,6 +216,12 @@ impl Module for BankKeeper {
                     .find(|c| c.denom == denom)
                     .unwrap_or_else(|| coin(0, denom));
                 let res = BalanceResponse { amount };
+                Ok(to_binary(&res)?)
+            }
+            BankQuery::Supply { denom } => {
+                let supply = self.get_supply(&bank_storage, &denom)?;
+                let mut res = SupplyResponse::default();
+                res.amount = Coin::new(supply.u128(), denom);
                 Ok(to_binary(&res)?)
             }
             q => bail!("Unsupported bank query: {:?}", q),
@@ -469,5 +488,53 @@ mod test {
         };
         bank.sudo(&api, &mut store, &router, &block, msg)
             .unwrap_err();
+    }
+
+    #[test]
+    fn query_total_supply() {
+        let api = MockApi::default();
+        let mut storage = MockStorage::new();
+        let block = mock_env().block;
+        let querier: MockQuerier<Empty> = MockQuerier::new(&[]);
+
+        let addr1 = Addr::unchecked("addr1");
+        let addr2 = Addr::unchecked("addr2");
+        let init_funds = vec![coin(5000, "atom"), coin(100, "eth")];
+
+        // Init balances
+        let bank = BankKeeper::new();
+        bank.init_balance(&mut storage, &addr1, init_funds.clone())
+            .unwrap();
+        bank.init_balance(&mut storage, &addr2, init_funds).unwrap();
+
+        // Query total supply of atom
+        let request = BankQuery::Supply {
+            denom: "atom".to_string(),
+        };
+        let raw = bank
+            .query(&api, &storage, &querier, &block, request)
+            .unwrap();
+        let supply_res: SupplyResponse = from_slice(&raw).unwrap();
+        assert_eq!(supply_res.amount, Coin::new(10000u128, "atom"));
+
+        // Query total supply of eth
+        let request = BankQuery::Supply {
+            denom: "eth".to_string(),
+        };
+        let raw = bank
+            .query(&api, &storage, &querier, &block, request)
+            .unwrap();
+        let supply_res: SupplyResponse = from_slice(&raw).unwrap();
+        assert_eq!(supply_res.amount, Coin::new(200u128, "eth"));
+
+        // Query total supply of btc
+        let request = BankQuery::Supply {
+            denom: "btc".to_string(),
+        };
+        let raw = bank
+            .query(&api, &storage, &querier, &block, request)
+            .unwrap();
+        let supply_res: SupplyResponse = from_slice(&raw).unwrap();
+        assert_eq!(supply_res.amount, Coin::new(0u128, "btc"));
     }
 }
