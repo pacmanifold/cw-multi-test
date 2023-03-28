@@ -50,7 +50,7 @@ pub trait Bank: Module<ExecT = BankMsg, QueryT = BankQuery, SudoT = BankSudo> {}
 /// Manages financial interactions in CosmWasm tests, such as simulating token transactions
 /// and account balances. This is particularly important for contracts that deal with financial
 /// operations in the Cosmos ecosystem.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct BankKeeper {}
 
 impl BankKeeper {

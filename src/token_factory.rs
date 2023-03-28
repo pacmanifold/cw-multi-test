@@ -15,6 +15,7 @@ use crate::{
     AppResponse, BankSudo,
 };
 
+#[derive(Clone)]
 pub struct TokenFactory<'a> {
     pub module_denom_prefix: &'a str,
     pub max_subdenom_len: usize,
@@ -22,6 +23,16 @@ pub struct TokenFactory<'a> {
     pub max_creator_len: usize,
     pub denom_creation_fee: &'a str,
 }
+
+// impl<'a> From<ConstTokenFactory<> for TokenFactory<'a> {}
+
+// pub struct TokenFactory {
+//     pub module_denom_prefix: String,
+//     pub max_subdenom_len: usize,
+//     pub max_hrp_len: usize,
+//     pub max_creator_len: usize,
+//     pub denom_creation_fee: String,
+// }
 
 impl<'a> TokenFactory<'a> {
     pub const fn new(
@@ -230,16 +241,6 @@ impl TokenFactory<'_> {
 
         Ok(res)
     }
-
-    pub fn register(&'static self, keeper: &mut StargateKeeper<Empty, Empty>) {
-        for type_url in [
-            MsgCreateDenom::TYPE_URL,
-            MsgMint::TYPE_URL,
-            MsgBurn::TYPE_URL,
-        ] {
-            keeper.register_msg(type_url, self as &dyn StargateMessageHandler<Empty, Empty>);
-        }
-    }
 }
 
 impl StargateMessageHandler<Empty, Empty> for TokenFactory<'_> {
@@ -257,6 +258,17 @@ impl StargateMessageHandler<Empty, Empty> for TokenFactory<'_> {
             MsgMint::TYPE_URL => self.mint(api, storage, router, block, sender, msg),
             MsgBurn::TYPE_URL => self.burn(api, storage, router, block, sender, msg),
             _ => bail!("Unknown message type {}", msg.type_url),
+        }
+    }
+
+    fn register_msgs(&'static self, keeper: &mut StargateKeeper<Empty, Empty>) {
+        let token_factory_box = Box::new(self.clone());
+        for type_url in [
+            MsgCreateDenom::TYPE_URL,
+            MsgMint::TYPE_URL,
+            MsgBurn::TYPE_URL,
+        ] {
+            keeper.register_msg(type_url, token_factory_box.clone());
         }
     }
 }
@@ -286,8 +298,6 @@ fn coin_from_sdk_string(sdk_string: &str) -> anyhow::Result<Coin> {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Add;
-
     use cosmwasm_std::{BalanceResponse, Binary, Coin};
 
     use crate::{stargate::StargateKeeper, BasicAppBuilder, Executor};
@@ -311,7 +321,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut stargate_keeper = StargateKeeper::new();
-        TOKEN_FACTORY.register(&mut stargate_keeper);
+        TOKEN_FACTORY.register_msgs(&mut stargate_keeper);
 
         let mut app = BasicAppBuilder::<Empty, Empty>::new()
             .with_stargate(stargate_keeper)
@@ -361,7 +371,7 @@ mod tests {
     #[test_case(Addr::unchecked("sender"), Addr::unchecked("creator"), 1000u128 => panics ; "sender is not creator")]
     fn mint(sender: Addr, creator: Addr, mint_amount: u128) {
         let mut stargate_keeper = StargateKeeper::new();
-        TOKEN_FACTORY.register(&mut stargate_keeper);
+        TOKEN_FACTORY.register_msgs(&mut stargate_keeper);
 
         let mut app = BasicAppBuilder::<Empty, Empty>::new()
             .with_stargate(stargate_keeper)
@@ -418,7 +428,7 @@ mod tests {
     #[test_case(Addr::unchecked("sender"), Addr::unchecked("sender"), 2000u128, 1000u128 => panics ; "insufficient funds")]
     fn burn(sender: Addr, creator: Addr, burn_amount: u128, initial_balance: u128) {
         let mut stargate_keeper = StargateKeeper::new();
-        TOKEN_FACTORY.register(&mut stargate_keeper);
+        TOKEN_FACTORY.register_msgs(&mut stargate_keeper);
 
         let tf_denom = format!(
             "{}/{}/{}",
