@@ -968,6 +968,7 @@ mod test {
     use crate::bank::BankKeeper;
     use crate::module::FailingModule;
     use crate::staking::{DistributionKeeper, StakeKeeper};
+    use crate::stargate::StargateKeeper;
     use crate::test_helpers::contracts::{caller, error, payout};
     use crate::test_helpers::EmptyMsg;
     use crate::transactions::StorageTransaction;
@@ -983,6 +984,7 @@ mod test {
         DistributionKeeper,
         FailingModule<IbcMsg, IbcQuery, Empty>,
         FailingModule<GovMsg, Empty, Empty>,
+        StargateKeeper<ExecC, QueryC>,
     >;
 
     fn mock_router() -> BasicRouter {
@@ -994,6 +996,7 @@ mod test {
             distribution: DistributionKeeper::new(),
             ibc: FailingModule::new(),
             gov: FailingModule::new(),
+            stargate: StargateKeeper::new(),
         }
     }
 
