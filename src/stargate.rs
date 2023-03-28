@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::bail;
 use cosmwasm_std::{Addr, Api, Binary, BlockInfo, CosmosMsg, CustomQuery, Empty, Querier, Storage};
-use osmosis_std::types::cosmos::bank::v1beta1::QueryBalanceRequest;
 
 use crate::{AppResponse, CosmosRouter};
 
@@ -312,5 +311,62 @@ mod tests {
 
         let x: String = from_binary(&res.data.unwrap()).unwrap();
         assert_eq!(x, "bar1337");
+    }
+
+    const BANK_KEEPER: BankKeeper = BankKeeper {};
+
+    #[test]
+    fn query_bank_module_via_stargate() {
+        let mut stargate_keeper = StargateKeeper::new();
+
+        BANK_KEEPER.register_queries(&mut stargate_keeper);
+
+        let owner = Addr::unchecked("owner");
+        let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
+
+        let app = BasicAppBuilder::<Empty, Empty>::new()
+            .with_stargate(stargate_keeper)
+            .build(|router, _, storage| {
+                router
+                    .bank
+                    .init_balance(storage, &owner, init_funds.clone())
+                    .unwrap();
+            });
+
+        let querier = app.wrap();
+
+        // QueryAllBalancesRequest
+        let res = QueryAllBalancesRequest {
+            address: owner.to_string(),
+            pagination: None,
+        }
+        .query(&querier)
+        .unwrap();
+        let blances: Vec<Coin> = res
+            .balances
+            .into_iter()
+            .map(|c| Coin::new(u128::from_str(&c.amount).unwrap(), c.denom))
+            .collect();
+        assert_eq!(blances, init_funds);
+
+        // QueryBalanceRequest
+        let res = QueryBalanceRequest {
+            address: owner.to_string(),
+            denom: "eth".to_string(),
+        }
+        .query(&querier)
+        .unwrap();
+        let balance = res.balance.unwrap();
+        assert_eq!(balance.amount, init_funds[1].amount.to_string());
+        assert_eq!(balance.denom, init_funds[1].denom);
+
+        // QueryTotalSupplyRequest
+        let res = QuerySupplyOfRequest {
+            denom: "eth".to_string(),
+        };
+        let res = res.query(&querier).unwrap();
+        let supply = res.amount.unwrap();
+        assert_eq!(supply.amount, init_funds[1].amount.to_string());
+        assert_eq!(supply.denom, init_funds[1].denom);
     }
 }
