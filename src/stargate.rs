@@ -260,12 +260,12 @@ mod tests {
                 Addr::unchecked("unchecked"),
                 CosmosMsg::Stargate {
                     type_url: "foo".to_string(),
-                    value: Binary::default(),
+                    value: to_binary(&1337u64).unwrap(),
                 },
             )
             .unwrap();
 
-        res.assert_event(&Event::new("foo").add_attribute("bar", "bar"));
+        res.assert_event(&Event::new("foo").add_attribute("bar", "1337"));
     }
 
     #[test]
