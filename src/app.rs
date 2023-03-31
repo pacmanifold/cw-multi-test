@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::fmt::{self, Debug};
 use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 
 use anyhow::bail;
 use anyhow::Result as AnyResult;
@@ -60,7 +62,7 @@ pub struct App<
 > {
     router: Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>,
     api: Api,
-    storage: Storage,
+    storage: RefCell<Storage>,
     block: BlockInfo,
 }
 
@@ -71,7 +73,7 @@ fn no_init<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>(
 ) {
 }
 
-impl Default for BasicApp {
+impl Default for App {
     fn default() -> Self {
         Self::new(no_init)
     }
@@ -141,9 +143,8 @@ where
     StargateT: Stargate<CustomT::ExecT, CustomT::QueryT>,
 {
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
-        println!("raw_query in app Querier impl: {:?}", bin_request);
         self.router
-            .querier(&self.api, &self.storage, &self.block)
+            .querier(&self.api, self.storage.borrow().deref(), &self.block)
             .raw_query(bin_request)
     }
 }
@@ -166,7 +167,7 @@ where
     StargateT: Stargate<CustomT::ExecT, CustomT::QueryT>,
 {
     fn execute(
-        &mut self,
+        &self,
         sender: Addr,
         msg: cosmwasm_std::CosmosMsg<CustomT::ExecT>,
     ) -> AnyResult<AppResponse> {
@@ -715,7 +716,7 @@ impl<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, Starga
             router,
             api: self.api,
             block: self.block,
-            storage: self.storage,
+            storage: RefCell::new(self.storage),
         };
         app.init_modules(init_fn);
         app
@@ -743,7 +744,7 @@ where
             &mut dyn Storage,
         ) -> T,
     {
-        init_fn(&mut self.router, &self.api, &mut self.storage)
+        init_fn(&mut self.router, &self.api, self.storage.get_mut())
     }
 
     pub fn read_module<F, T>(&self, query_fn: F) -> T
@@ -754,7 +755,7 @@ where
             &dyn Storage,
         ) -> T,
     {
-        query_fn(&self.router, &self.api, &self.storage)
+        query_fn(&self.router, &self.api, self.storage.borrow().deref())
     }
 }
 
@@ -843,7 +844,7 @@ where
     /// This will create a cache before the execution, so no state changes are persisted if any of them
     /// return an error. But all writes are persisted on success.
     pub fn execute_multi(
-        &mut self,
+        &self,
         sender: Addr,
         msgs: Vec<cosmwasm_std::CosmosMsg<CustomT::ExecT>>,
     ) -> AnyResult<Vec<AppResponse>> {
@@ -858,9 +859,9 @@ where
             storage,
         } = self;
 
-        transactional(&mut *storage, |write_cache, _| {
+        transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             msgs.into_iter()
-                .map(|msg| router.execute(&*api, write_cache, block, sender.clone(), msg))
+                .map(|msg| router.execute(api, write_cache, block, sender.clone(), msg))
                 .collect()
         })
     }
@@ -869,7 +870,7 @@ where
     /// This will create a cache before the execution, so no state changes are persisted if this
     /// returns an error, but all are persisted on success.
     pub fn wasm_sudo<T: Serialize, U: Into<Addr>>(
-        &mut self,
+        &self,
         contract_addr: U,
         msg: &T,
     ) -> AnyResult<AppResponse> {
@@ -882,7 +883,7 @@ where
             storage,
         } = self;
 
-        transactional(&mut *storage, |write_cache, _| {
+        transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             router
                 .wasm
                 .sudo(&*api, contract_addr.into(), write_cache, router, block, msg)
@@ -892,7 +893,7 @@ where
     /// Runs arbitrary SudoMsg.
     /// This will create a cache before the execution, so no state changes are persisted if this
     /// returns an error, but all are persisted on success.
-    pub fn sudo(&mut self, msg: SudoMsg) -> AnyResult<AppResponse> {
+    pub fn sudo(&self, msg: SudoMsg) -> AnyResult<AppResponse> {
         // we need to do some caching of storage here, once in the entry point:
         // meaning, wrap current state, all writes go to a cache, only when execute
         // returns a success do we flush it (otherwise drop it)
@@ -903,7 +904,7 @@ where
             storage,
         } = self;
 
-        transactional(&mut *storage, |write_cache, _| {
+        transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             router.sudo(&*api, write_cache, block, msg)
         })
     }
@@ -1067,7 +1068,6 @@ where
         block: &BlockInfo,
         request: QueryRequest<Self::QueryC>,
     ) -> AnyResult<Binary> {
-        println!("Querying lolol");
         let querier = self.querier(api, storage, block);
         match request {
             QueryRequest::Wasm(req) => self.wasm.query(api, storage, &querier, block, req),
@@ -1076,7 +1076,6 @@ where
             QueryRequest::Staking(req) => self.staking.query(api, storage, &querier, block, req),
             QueryRequest::Ibc(req) => self.ibc.query(api, storage, &querier, block, req),
             QueryRequest::Stargate { path, data } => {
-                println!("Stargate query: {}", path);
                 let res = self.stargate.query(
                     api,
                     storage,
@@ -1087,7 +1086,6 @@ where
                         value: data,
                     },
                 );
-                println!("Stargate query result: {:?}", res);
                 res
             }
             _ => unimplemented!(),
@@ -1944,7 +1942,7 @@ mod test {
         let rcpt = Addr::unchecked("recipient");
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
 
-        let mut app = App::new(|router, _, storage| {
+        let app = App::new(|router, _, storage| {
             router
                 .bank
                 .init_balance(storage, &owner, init_funds)
@@ -1952,7 +1950,8 @@ mod test {
         });
 
         // cache 1 - send some tokens
-        let mut cache = StorageTransaction::new(&app.storage);
+        let storage = app.storage.take();
+        let mut cache = StorageTransaction::new(&storage);
         let msg = BankMsg::Send {
             to_address: rcpt.clone().into(),
             amount: coins(25, "eth"),
@@ -1987,7 +1986,7 @@ mod test {
         .unwrap();
 
         // apply first to router
-        cache.prepare().commit(&mut app.storage);
+        cache.prepare().commit(app.storage.borrow_mut().deref_mut());
 
         let committed = query_app(&app, &rcpt);
         assert_eq!(coins(37, "eth"), committed);

@@ -197,7 +197,6 @@ mod tests {
         ) -> anyhow::Result<Binary> {
             let num: u64 = from_binary(&msg.value)?;
             let bin = to_binary(&format!("bar{:?}", num)).unwrap();
-            println!("post bin conversion");
             Ok(bin)
         }
 

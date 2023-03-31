@@ -67,12 +67,12 @@ where
     /// Runs arbitrary CosmosMsg.
     /// This will create a cache before the execution, so no state changes are persisted if this
     /// returns an error, but all are persisted on success.
-    fn execute(&mut self, sender: Addr, msg: CosmosMsg<C>) -> AnyResult<AppResponse>;
+    fn execute(&self, sender: Addr, msg: CosmosMsg<C>) -> AnyResult<AppResponse>;
 
     /// Create a contract and get the new address.
     /// This is just a helper around execute()
     fn instantiate_contract<T: Serialize, U: Into<String>>(
-        &mut self,
+        &self,
         code_id: u64,
         sender: Addr,
         init_msg: &T,
@@ -98,7 +98,7 @@ where
     /// This is just a helper around execute(),
     /// but we parse out the data field to that what is returned by the contract (not the protobuf wrapper)
     fn execute_contract<T: Serialize + std::fmt::Debug>(
-        &mut self,
+        &self,
         sender: Addr,
         contract_addr: Addr,
         msg: &T,
