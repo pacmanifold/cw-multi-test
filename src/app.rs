@@ -1,3 +1,16 @@
+use std::cell::RefCell;
+use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
+
+use cosmwasm_std::{
+    from_json, to_json_binary, Addr, Api, Binary, BlockInfo, ContractResult, CosmosMsg, CustomMsg,
+    CustomQuery, Empty, Querier, QuerierResult, QuerierWrapper, QueryRequest, Record, Storage,
+    SystemError, SystemResult,
+};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
 use crate::bank::{Bank, BankKeeper, BankSudo};
 use crate::contracts::Contract;
 use crate::error::{bail, AnyResult};
@@ -14,14 +27,6 @@ use crate::transactions::transactional;
 use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
 use crate::{AppBuilder, GovFailingModule, IbcFailingModule};
 use cosmwasm_std::testing::{MockApi, MockStorage};
-use cosmwasm_std::{
-    from_json, to_json_binary, Addr, Api, Binary, BlockInfo, ContractResult, CosmosMsg, CustomMsg,
-    CustomQuery, Empty, Querier, QuerierResult, QuerierWrapper, QueryRequest, Record, Storage,
-    SystemError, SystemResult,
-};
-use serde::{de::DeserializeOwned, Serialize};
-use std::fmt::Debug;
-use std::marker::PhantomData;
 
 /// Advances the blockchain environment to the next block in tests, enabling developers to simulate
 /// time-dependent contract behaviors and block-related triggers efficiently.
@@ -63,7 +68,7 @@ pub struct App<
 > {
     pub(crate) router: Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>,
     pub(crate) api: Api,
-    pub(crate) storage: Storage,
+    pub(crate) storage: RefCell<Storage>,
     pub(crate) block: BlockInfo,
 }
 
@@ -76,7 +81,7 @@ pub fn no_init<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>(
     let _ = (router, api, storage);
 }
 
-impl Default for BasicApp {
+impl Default for App {
     fn default() -> Self {
         Self::new(no_init)
     }
@@ -147,7 +152,7 @@ where
 {
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
         self.router
-            .querier(&self.api, &self.storage, &self.block)
+            .querier(&self.api, self.storage.borrow().deref(), &self.block)
             .raw_query(bin_request)
     }
 }
@@ -169,7 +174,11 @@ where
     GovT: Gov,
     StargateT: Stargate,
 {
-    fn execute(&mut self, sender: Addr, msg: CosmosMsg<CustomT::ExecT>) -> AnyResult<AppResponse> {
+    fn execute(
+        &self,
+        sender: Addr,
+        msg: cosmwasm_std::CosmosMsg<CustomT::ExecT>,
+    ) -> AnyResult<AppResponse> {
         let mut all = self.execute_multi(sender, vec![msg])?;
         let res = all.pop().unwrap();
         Ok(res)
@@ -221,7 +230,7 @@ where
             &mut dyn Storage,
         ) -> T,
     {
-        init_fn(&mut self.router, &self.api, &mut self.storage)
+        init_fn(&mut self.router, &self.api, self.storage.get_mut())
     }
 
     /// Queries a module.
@@ -233,7 +242,7 @@ where
             &dyn Storage,
         ) -> T,
     {
-        query_fn(&self.router, &self.api, &self.storage)
+        query_fn(&self.router, &self.api, self.storage.borrow().deref())
     }
 }
 
@@ -439,7 +448,7 @@ where
     /// This will create a cache before the execution, so no state changes are persisted if any of them
     /// return an error. But all writes are persisted on success.
     pub fn execute_multi(
-        &mut self,
+        &self,
         sender: Addr,
         msgs: Vec<CosmosMsg<CustomT::ExecT>>,
     ) -> AnyResult<Vec<AppResponse>> {
@@ -454,9 +463,9 @@ where
             storage,
         } = self;
 
-        transactional(&mut *storage, |write_cache, _| {
+        transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             msgs.into_iter()
-                .map(|msg| router.execute(&*api, write_cache, block, sender.clone(), msg))
+                .map(|msg| router.execute(api, write_cache, block, sender.clone(), msg))
                 .collect()
         })
     }
@@ -465,7 +474,7 @@ where
     /// This will create a cache before the execution, so no state changes are persisted if this
     /// returns an error, but all are persisted on success.
     pub fn wasm_sudo<T: Serialize, U: Into<Addr>>(
-        &mut self,
+        &self,
         contract_addr: U,
         msg: &T,
     ) -> AnyResult<AppResponse> {
@@ -481,7 +490,7 @@ where
             storage,
         } = self;
 
-        transactional(&mut *storage, |write_cache, _| {
+        transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             router.wasm.sudo(&*api, write_cache, router, block, msg)
         })
     }
@@ -489,7 +498,7 @@ where
     /// Runs arbitrary SudoMsg.
     /// This will create a cache before the execution, so no state changes are persisted if this
     /// returns an error, but all are persisted on success.
-    pub fn sudo(&mut self, msg: SudoMsg) -> AnyResult<AppResponse> {
+    pub fn sudo(&self, msg: SudoMsg) -> AnyResult<AppResponse> {
         // we need to do some caching of storage here, once in the entry point:
         // meaning, wrap current state, all writes go to a cache, only when execute
         // returns a success do we flush it (otherwise drop it)
@@ -500,7 +509,7 @@ where
             storage,
         } = self;
 
-        transactional(&mut *storage, |write_cache, _| {
+        transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             router.sudo(&*api, write_cache, block, msg)
         })
     }
