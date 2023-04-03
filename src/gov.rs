@@ -79,7 +79,7 @@ mod test {
 
     #[test]
     fn default_gov() {
-        let mut app = App::default();
+        let app = App::default();
         let code = app.store_code(contract());
         let contract = app
             .instantiate_contract(
@@ -98,7 +98,7 @@ mod test {
 
     #[test]
     fn subsituting_gov() {
-        let mut app = AppBuilder::new()
+        let app = AppBuilder::new()
             .with_gov(AcceptingModule)
             .build(|_, _, _| ());
         let code = app.store_code(contract());

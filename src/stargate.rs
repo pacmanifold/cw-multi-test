@@ -250,7 +250,7 @@ mod tests {
         let mut stargate_keeper = StargateKeeper::new();
         stargate_keeper.register_msg("foo", Box::new(FOO_HANDLER));
 
-        let mut app = BasicAppBuilder::<Empty, Empty>::new()
+        let app = BasicAppBuilder::<Empty, Empty>::new()
             .with_stargate(stargate_keeper)
             .build(|_, _, _| {});
 
@@ -294,7 +294,7 @@ mod tests {
         stargate_keeper.register_msg("bar", Box::new(BAR_HANDLER));
         stargate_keeper.register_query("foo", Box::new(FOO_QUERY_HANDLER));
 
-        let mut app = BasicAppBuilder::<Empty, Empty>::new()
+        let app = BasicAppBuilder::<Empty, Empty>::new()
             .with_stargate(stargate_keeper)
             .build(|_, _, _| {});
 

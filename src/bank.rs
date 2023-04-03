@@ -77,7 +77,6 @@ impl BankKeeper {
         Ok(BALANCES
             .range(bank_storage, None, None, Order::Ascending)
             .map(|item| item.map(|i| i.1.into_vec()))
-            .map(|coins| coins)
             .collect::<StdResult<Vec<Vec<Coin>>>>()?
             .into_iter()
             .flatten()

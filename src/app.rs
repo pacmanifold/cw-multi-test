@@ -60,7 +60,7 @@ pub struct App<
     Gov = FailingModule<GovMsg, Empty, Empty>,
     Stargate = StargateKeeper<Empty, Empty>,
 > {
-    router: Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>,
+    router: RefCell<Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>>,
     api: Api,
     storage: RefCell<Storage>,
     block: BlockInfo,
@@ -144,6 +144,7 @@ where
 {
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
         self.router
+            .borrow()
             .querier(&self.api, self.storage.borrow().deref(), &self.block)
             .raw_query(bin_request)
     }
@@ -712,8 +713,8 @@ impl<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, Starga
             stargate: self.stargate,
         };
 
-        let mut app = App {
-            router,
+        let app = App {
+            router: RefCell::new(router),
             api: self.api,
             block: self.block,
             storage: RefCell::new(self.storage),
@@ -736,7 +737,7 @@ where
     IbcT: Ibc,
     GovT: Gov,
 {
-    pub fn init_modules<F, T>(&mut self, init_fn: F) -> T
+    pub fn init_modules<F, T>(&self, init_fn: F) -> T
     where
         F: FnOnce(
             &mut Router<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>,
@@ -744,7 +745,11 @@ where
             &mut dyn Storage,
         ) -> T,
     {
-        init_fn(&mut self.router, &self.api, self.storage.get_mut())
+        init_fn(
+            self.router.borrow_mut().deref_mut(),
+            &self.api,
+            self.storage.borrow_mut().deref_mut(),
+        )
     }
 
     pub fn read_module<F, T>(&self, query_fn: F) -> T
@@ -755,7 +760,11 @@ where
             &dyn Storage,
         ) -> T,
     {
-        query_fn(&self.router, &self.api, self.storage.borrow().deref())
+        query_fn(
+            &self.router.borrow(),
+            &self.api,
+            self.storage.borrow().deref(),
+        )
     }
 }
 
@@ -789,7 +798,7 @@ where
 {
     /// This registers contract code (like uploading wasm bytecode on a chain),
     /// so it can later be used to instantiate a contract.
-    pub fn store_code(&mut self, code: Box<dyn Contract<CustomT::ExecT, CustomT::QueryT>>) -> u64 {
+    pub fn store_code(&self, code: Box<dyn Contract<CustomT::ExecT, CustomT::QueryT>>) -> u64 {
         self.init_modules(|router, _, _| router.wasm.store_code(code) as u64)
     }
 
@@ -861,7 +870,11 @@ where
 
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             msgs.into_iter()
-                .map(|msg| router.execute(api, write_cache, block, sender.clone(), msg))
+                .map(|msg| {
+                    router
+                        .borrow()
+                        .execute(api, write_cache, block, sender.clone(), msg)
+                })
                 .collect()
         })
     }
@@ -884,9 +897,14 @@ where
         } = self;
 
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
-            router
-                .wasm
-                .sudo(&*api, contract_addr.into(), write_cache, router, block, msg)
+            router.borrow().wasm.sudo(
+                api,
+                contract_addr.into(),
+                write_cache,
+                router.borrow().deref(),
+                block,
+                msg,
+            )
         })
     }
 
@@ -905,7 +923,7 @@ where
         } = self;
 
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
-            router.sudo(&*api, write_cache, block, msg)
+            router.borrow().sudo(api, write_cache, block, msg)
         })
     }
 }
@@ -1075,19 +1093,16 @@ where
             QueryRequest::Custom(req) => self.custom.query(api, storage, &querier, block, req),
             QueryRequest::Staking(req) => self.staking.query(api, storage, &querier, block, req),
             QueryRequest::Ibc(req) => self.ibc.query(api, storage, &querier, block, req),
-            QueryRequest::Stargate { path, data } => {
-                let res = self.stargate.query(
-                    api,
-                    storage,
-                    &querier,
-                    block,
-                    StargateMsg {
-                        type_url: path,
-                        value: data,
-                    },
-                );
-                res
-            }
+            QueryRequest::Stargate { path, data } => self.stargate.query(
+                api,
+                storage,
+                &querier,
+                block,
+                StargateMsg {
+                    type_url: path,
+                    value: data,
+                },
+            ),
             _ => unimplemented!(),
         }
     }
@@ -1273,7 +1288,7 @@ mod test {
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
         let rcpt_funds = vec![coin(5, "btc")];
 
-        let mut app = App::new(|router, _, storage| {
+        let app = App::new(|router, _, storage| {
             // initialization moved to App construction
             router
                 .bank
@@ -1319,7 +1334,7 @@ mod test {
         let owner = Addr::unchecked("owner");
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
 
-        let mut app = App::new(|router, _, storage| {
+        let app = App::new(|router, _, storage| {
             router
                 .bank
                 .init_balance(storage, &owner, init_funds)
@@ -1402,7 +1417,7 @@ mod test {
         let owner = Addr::unchecked("owner");
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
 
-        let mut app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
+        let app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
             router
                 .bank
                 .init_balance(storage, &owner, init_funds)
@@ -1503,7 +1518,7 @@ mod test {
         let owner = Addr::unchecked("owner");
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
 
-        let mut app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
+        let app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
             router
                 .bank
                 .init_balance(storage, &owner, init_funds)
@@ -1597,7 +1612,7 @@ mod test {
         let owner = Addr::unchecked("owner");
         let init_funds = vec![coin(100, "eth")];
 
-        let mut app = App::new(|router, _, storage| {
+        let app = App::new(|router, _, storage| {
             router
                 .bank
                 .init_balance(storage, &owner, init_funds)
@@ -1762,7 +1777,7 @@ mod test {
             let lottery = coin(54321, denom);
             let bonus = coin(12321, denom);
 
-            let mut app = BasicAppBuilder::<CustomMsg, Empty>::new_custom()
+            let app = BasicAppBuilder::<CustomMsg, Empty>::new_custom()
                 .with_custom(CustomHandler {})
                 .build(|router, _, storage| {
                     router
@@ -1797,7 +1812,7 @@ mod test {
         let random = Addr::unchecked("random");
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];
 
-        let mut app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
+        let app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
             router
                 .bank
                 .init_balance(storage, &owner, init_funds)
@@ -1957,11 +1972,12 @@ mod test {
             amount: coins(25, "eth"),
         };
         app.router
+            .borrow()
             .execute(&app.api, &mut cache, &app.block, owner.clone(), msg.into())
             .unwrap();
 
         // shows up in cache
-        let cached_rcpt = query_router(&app.router, &app.api, &cache, &rcpt);
+        let cached_rcpt = query_router(&app.router.borrow(), &app.api, &cache, &rcpt);
         assert_eq!(coins(25, "eth"), cached_rcpt);
         let router_rcpt = query_app(&app, &rcpt);
         assert_eq!(router_rcpt, vec![]);
@@ -1973,13 +1989,14 @@ mod test {
                 amount: coins(12, "eth"),
             };
             app.router
+                .borrow()
                 .execute(&app.api, cache2, &app.block, owner, msg.into())
                 .unwrap();
 
             // shows up in 2nd cache
-            let cached_rcpt = query_router(&app.router, &app.api, read, &rcpt);
+            let cached_rcpt = query_router(&app.router.borrow(), &app.api, read, &rcpt);
             assert_eq!(coins(25, "eth"), cached_rcpt);
-            let cached2_rcpt = query_router(&app.router, &app.api, cache2, &rcpt);
+            let cached2_rcpt = query_router(&app.router.borrow(), &app.api, cache2, &rcpt);
             assert_eq!(coins(37, "eth"), cached2_rcpt);
             Ok(())
         })
@@ -2003,7 +2020,7 @@ mod test {
         let beneficiary = Addr::unchecked("beneficiary");
         let init_funds = coins(30, "btc");
 
-        let mut app = App::new(|router, _, storage| {
+        let app = App::new(|router, _, storage| {
             router
                 .bank
                 .init_balance(storage, &owner, init_funds)
@@ -2125,7 +2142,7 @@ mod test {
         let owner2 = Addr::unchecked("owner2");
         let beneficiary = Addr::unchecked("beneficiary");
 
-        let mut app = App::default();
+        let app = App::default();
 
         // create a hackatom contract with some funds
         let contract_id = app.store_code(hackatom::contract());
@@ -2222,7 +2239,7 @@ mod test {
 
         #[test]
         fn no_submsg() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2248,7 +2265,7 @@ mod test {
 
         #[test]
         fn single_submsg() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2280,7 +2297,7 @@ mod test {
 
         #[test]
         fn single_submsg_no_reply() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2307,7 +2324,7 @@ mod test {
 
         #[test]
         fn single_no_submsg_data() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2334,7 +2351,7 @@ mod test {
 
         #[test]
         fn single_no_top_level_data() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2369,7 +2386,7 @@ mod test {
             let owner = Addr::unchecked("owner");
             let init_funds = coins(100, "tgd");
 
-            let mut app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
+            let app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
                 router
                     .bank
                     .init_balance(storage, &owner, init_funds)
@@ -2426,7 +2443,7 @@ mod test {
 
         #[test]
         fn multiple_submsg() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2473,7 +2490,7 @@ mod test {
 
         #[test]
         fn multiple_submsg_no_reply() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2505,7 +2522,7 @@ mod test {
 
         #[test]
         fn multiple_submsg_mixed() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2552,7 +2569,7 @@ mod test {
 
         #[test]
         fn nested_submsg() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2603,7 +2620,7 @@ mod test {
 
         #[test]
         fn empty_attribute_key() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2633,7 +2650,7 @@ mod test {
 
         #[test]
         fn empty_attribute_value() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2663,7 +2680,7 @@ mod test {
 
         #[test]
         fn empty_event_attribute_key() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2692,7 +2709,7 @@ mod test {
 
         #[test]
         fn empty_event_attribute_value() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2721,7 +2738,7 @@ mod test {
 
         #[test]
         fn too_short_event_type() {
-            let mut app = App::default();
+            let app = App::default();
 
             let owner = Addr::unchecked("owner");
 
@@ -2760,7 +2777,7 @@ mod test {
             let custom_handler = CachingCustomHandler::<CustomMsg, Empty>::new();
             let custom_handler_state = custom_handler.state();
 
-            let mut app = AppBuilder::new_custom()
+            let app = AppBuilder::new_custom()
                 .with_api(api)
                 .with_custom(custom_handler)
                 .build(no_init);
@@ -2803,7 +2820,7 @@ mod test {
             let owner = Addr::unchecked("owner");
             let init_funds = vec![coin(20, "btc")];
 
-            let mut app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
+            let app = custom_app::<CustomMsg, Empty, _>(|router, _, storage| {
                 router
                     .bank
                     .init_balance(storage, &owner, init_funds)
@@ -2837,7 +2854,7 @@ mod test {
         #[test]
         fn instantiate_with_data_works() {
             let owner = Addr::unchecked("owner");
-            let mut app = BasicApp::new(|_, _, _| {});
+            let app = BasicApp::new(|_, _, _| {});
 
             // set up echo contract
             let code_id = app.store_code(echo::contract());
@@ -2865,7 +2882,7 @@ mod test {
         #[test]
         fn instantiate_with_reply_works() {
             let owner = Addr::unchecked("owner");
-            let mut app = BasicApp::new(|_, _, _| {});
+            let app = BasicApp::new(|_, _, _| {});
 
             // set up echo contract
             let code_id = app.store_code(echo::contract());
@@ -2916,7 +2933,7 @@ mod test {
         #[test]
         fn execute_wrapped_properly() {
             let owner = Addr::unchecked("owner");
-            let mut app = BasicApp::new(|_, _, _| {});
+            let app = BasicApp::new(|_, _, _| {});
 
             // set up reflect contract
             let code_id = app.store_code(echo::contract());
@@ -2941,7 +2958,7 @@ mod test {
         #[test]
         fn simple_instantiation() {
             let owner = Addr::unchecked("owner");
-            let mut app = App::default();
+            let app = App::default();
 
             // set up contract
             let code_id = app.store_code(error::contract(false));
@@ -2966,7 +2983,7 @@ mod test {
         #[test]
         fn simple_call() {
             let owner = Addr::unchecked("owner");
-            let mut app = App::default();
+            let app = App::default();
 
             // set up contract
             let code_id = app.store_code(error::contract(true));
@@ -2996,7 +3013,7 @@ mod test {
         #[test]
         fn nested_call() {
             let owner = Addr::unchecked("owner");
-            let mut app = App::default();
+            let app = App::default();
 
             let error_code_id = app.store_code(error::contract(true));
             let caller_code_id = app.store_code(caller::contract());
@@ -3036,7 +3053,7 @@ mod test {
         #[test]
         fn double_nested_call() {
             let owner = Addr::unchecked("owner");
-            let mut app = App::default();
+            let app = App::default();
 
             let error_code_id = app.store_code(error::contract(true));
             let caller_code_id = app.store_code(caller::contract());
