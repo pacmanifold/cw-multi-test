@@ -66,7 +66,7 @@ pub struct App<
     Gov = GovFailingModule,
     Stargate = StargateFailingModule,
 > {
-    pub(crate) router: Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>,
+    pub(crate) router: RefCell<Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>>,
     pub(crate) api: Api,
     pub(crate) storage: RefCell<Storage>,
     pub(crate) block: BlockInfo,
@@ -152,6 +152,7 @@ where
 {
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
         self.router
+            .borrow()
             .querier(&self.api, self.storage.borrow().deref(), &self.block)
             .raw_query(bin_request)
     }
@@ -230,7 +231,11 @@ where
             &mut dyn Storage,
         ) -> T,
     {
-        init_fn(&mut self.router, &self.api, self.storage.get_mut())
+        init_fn(
+            self.router.borrow_mut().deref_mut(),
+            &self.api,
+            self.storage.borrow_mut().deref_mut(),
+        )
     }
 
     /// Queries a module.
@@ -242,7 +247,11 @@ where
             &dyn Storage,
         ) -> T,
     {
-        query_fn(&self.router, &self.api, self.storage.borrow().deref())
+        query_fn(
+            &self.router.borrow(),
+            &self.api,
+            self.storage.borrow().deref(),
+        )
     }
 }
 
@@ -465,7 +474,11 @@ where
 
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             msgs.into_iter()
-                .map(|msg| router.execute(api, write_cache, block, sender.clone(), msg))
+                .map(|msg| {
+                    router
+                        .borrow()
+                        .execute(api, write_cache, block, sender.clone(), msg)
+                })
                 .collect()
         })
     }
@@ -491,7 +504,10 @@ where
         } = self;
 
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
-            router.wasm.sudo(&*api, write_cache, router, block, msg)
+            router
+                .borrow()
+                .wasm
+                .sudo(api, write_cache, router.borrow().deref(), block, msg)
         })
     }
 
@@ -510,7 +526,7 @@ where
         } = self;
 
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
-            router.sudo(&*api, write_cache, block, msg)
+            router.borrow().sudo(api, write_cache, block, msg)
         })
     }
 }
