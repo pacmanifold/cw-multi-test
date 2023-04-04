@@ -4,9 +4,18 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use cosmwasm_std::{
-    from_json, to_json_binary, Addr, Api, Binary, BlockInfo, ContractResult, CosmosMsg, CustomMsg,
-    CustomQuery, Empty, Querier, QuerierResult, QuerierWrapper, QueryRequest, Record, Storage,
-    SystemError, SystemResult,
+    from_json, to_json_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankQuery, Binary,
+    BlockInfo, ContractInfoResponse, ContractResult, CosmosMsg, CustomMsg, CustomQuery, Empty,
+    Querier, QuerierResult, QuerierWrapper, QueryRequest, Record, Storage, SupplyResponse,
+    SystemError, SystemResult, WasmQuery,
+};
+use osmosis_std::types::cosmos::bank::v1beta1::{
+    QueryAllBalancesRequest, QueryAllBalancesResponse, QueryBalanceRequest, QueryBalanceResponse,
+    QuerySupplyOfRequest, QuerySupplyOfResponse,
+};
+use osmosis_std::types::cosmwasm::wasm::v1::{
+    ContractInfo, QueryContractInfoRequest, QueryContractInfoResponse,
+    QuerySmartContractStateRequest, QuerySmartContractStateResponse,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -26,6 +35,10 @@ use crate::stargate::{Stargate, StargateFailingModule, StargateMsg, StargateQuer
 use crate::transactions::transactional;
 use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
 use crate::{AppBuilder, GovFailingModule, IbcFailingModule};
+use crate::{
+    QUERY_ALL_BALANCES_PATH, QUERY_BALANCE_PATH, QUERY_SUPPLY_PATH, QUERY_WASM_CONTRACT_INFO_PATH,
+    QUERY_WASM_CONTRACT_SMART_PATH,
+};
 use cosmwasm_std::testing::{MockApi, MockStorage};
 
 /// Advances the blockchain environment to the next block in tests, enabling developers to simulate
@@ -717,8 +730,120 @@ where
             QueryRequest::Staking(req) => self.staking.query(api, storage, &querier, block, req),
             QueryRequest::Ibc(req) => self.ibc.query(api, storage, &querier, block, req),
             QueryRequest::Stargate { path, data } => {
-                self.stargate
-                    .query(api, storage, &querier, block, StargateQuery { path, data })
+                // Handle bank and wasm queries and pass the rest on to the stargate handler
+                // If for any reason we want to support any of the other modules in App, e.g
+                // staking, we need to add them here. This is because when you try to register
+                // a module that is also part of the router, the router and the stargate module
+                // will hold different versions of the same module, due to constraints in the
+                // borrow system. This is not a problem if the module is state less, i.e. all
+                // state is stored in the storage, like BankKeeper. But if the module is stateful,
+                // like WasmKeeper then the codes HashMaps will end up out of sync. Therefore
+                // decided to handle stargate messages for all internal modules here and only
+                // passing the rest on to the stargate module.
+                match path.as_str() {
+                    // Bank queries
+                    QUERY_ALL_BALANCES_PATH => {
+                        let msg: QueryAllBalancesRequest = data.try_into()?;
+                        let bin_res = self.query(
+                            api,
+                            storage,
+                            block,
+                            BankQuery::AllBalances {
+                                address: msg.address,
+                            }
+                            .into(),
+                        )?;
+
+                        let bank_res: AllBalanceResponse = from_json(&bin_res)?;
+
+                        let res = QueryAllBalancesResponse {
+                            balances: bank_res
+                                .amount
+                                .into_iter()
+                                .map(|c| c.into())
+                                .collect::<Vec<_>>(),
+                            pagination: None,
+                        };
+                        Ok(to_json_binary(&res)?)
+                    }
+                    QUERY_BALANCE_PATH => {
+                        let req: QueryBalanceRequest = data.try_into()?;
+                        let bin_res = self.query(
+                            api,
+                            storage,
+                            block,
+                            BankQuery::Balance {
+                                address: req.address,
+                                denom: req.denom,
+                            }
+                            .into(),
+                        )?;
+
+                        let res: BalanceResponse = from_json(&bin_res)?;
+                        let res = QueryBalanceResponse {
+                            balance: Some(res.amount.into()),
+                        };
+
+                        Ok(to_json_binary(&res)?)
+                    }
+                    QUERY_SUPPLY_PATH => {
+                        let req: QuerySupplyOfRequest = data.try_into()?;
+                        let req = BankQuery::Supply { denom: req.denom };
+
+                        let bin_res = self.query(api, storage, block, req.into())?;
+
+                        let res: SupplyResponse = from_json(&bin_res)?;
+                        let res = QuerySupplyOfResponse {
+                            amount: Some(res.amount.into()),
+                        };
+
+                        Ok(to_json_binary(&res)?)
+                    }
+                    // Wasm module queries
+                    QUERY_WASM_CONTRACT_SMART_PATH => {
+                        let req: QuerySmartContractStateRequest = data.try_into()?;
+                        let query = WasmQuery::Smart {
+                            contract_addr: req.address,
+                            msg: req.query_data.into(),
+                        };
+                        let bin_res = self.query(api, storage, block, query.into())?;
+
+                        let res = QuerySmartContractStateResponse {
+                            data: bin_res.into(),
+                        };
+                        Ok(to_json_binary(&res)?)
+                    }
+                    QUERY_WASM_CONTRACT_INFO_PATH => {
+                        let req: QueryContractInfoRequest = data.try_into()?;
+                        let query = WasmQuery::ContractInfo {
+                            contract_addr: req.address.clone(),
+                        };
+                        let bin_res = self.query(api, storage, block, query.into())?;
+
+                        let res: ContractInfoResponse = from_json(&bin_res)?;
+                        let res = QueryContractInfoResponse {
+                            address: req.address,
+                            contract_info: Some(ContractInfo {
+                                code_id: res.code_id,
+                                creator: res.creator,
+                                admin: res.admin.unwrap_or_default(),
+                                label: "".to_string(),
+                                created: None,
+                                ibc_port_id: res.ibc_port.unwrap_or_default(),
+                                extension: None,
+                            }),
+                        };
+                        Ok(to_json_binary(&res)?)
+                    }
+                    // The rest of all stargate queries go to the stargate module
+                    _ => self.stargate.query(
+                        api,
+                        storage,
+                        &querier,
+                        block,
+                        StargateQuery { path, data },
+                    ),
+                }
             }
             _ => unimplemented!(),
         }
