@@ -1333,7 +1333,6 @@ where
     QueryC: CustomQuery + DeserializeOwned + 'static,
 {
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
-        println!("RouterQuerier::raw_query");
         let request: QueryRequest<QueryC> = match from_slice(bin_request) {
             Ok(v) => v,
             Err(e) => {
