@@ -155,7 +155,7 @@ mod tests {
         QueryAllBalancesRequest, QueryBalanceRequest, QuerySupplyOfRequest,
     };
 
-    use crate::{BankKeeper, BasicAppBuilder, Executor};
+    use crate::{BasicAppBuilder, Executor};
 
     use super::*;
 
@@ -312,13 +312,9 @@ mod tests {
         assert_eq!(x, "bar1337");
     }
 
-    const BANK_KEEPER: BankKeeper = BankKeeper {};
-
     #[test]
     fn query_bank_module_via_stargate() {
-        let mut stargate_keeper = StargateKeeper::new();
-
-        BANK_KEEPER.register_queries(&mut stargate_keeper);
+        let stargate_keeper = StargateKeeper::new();
 
         let owner = Addr::unchecked("owner");
         let init_funds = vec![coin(20, "btc"), coin(100, "eth")];

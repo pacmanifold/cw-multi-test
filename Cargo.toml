@@ -35,8 +35,9 @@ derivative = "2"
 # We don't use the following dependencies directly. They're dependencies of our dependencies.
 # We specify them to tighten their version requirements so that builds with `-Zminimal-versions` work.
 # Once we bump `cosmwasm-*` deps to a version after `1.1.5`, we can remove these.
-k256        = { version = "0.11.1", features = ["ecdsa"] }
-osmosis-std = "0.15.0"
+k256 = { version = "0.11.1", features = ["ecdsa"] }
+# osmosis-std = "0.15.0"
+osmosis-std = { git = "https://github.com/apollodao/osmosis-rust.git", rev = "a438e6b477ae75de538af3926847a689477d29f1" }
 regex       = "1.7.3"
 
 [dev-dependencies]

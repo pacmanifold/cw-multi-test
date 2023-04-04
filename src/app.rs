@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
@@ -7,9 +7,18 @@ use anyhow::bail;
 use anyhow::Result as AnyResult;
 use cosmwasm_std::testing::{mock_env, MockApi, MockStorage};
 use cosmwasm_std::{
-    from_slice, to_binary, Addr, Api, Binary, BlockInfo, ContractResult, CosmosMsg, CustomQuery,
-    Empty, GovMsg, IbcMsg, IbcQuery, Querier, QuerierResult, QuerierWrapper, QueryRequest, Record,
-    Storage, SystemError, SystemResult,
+    from_binary, from_slice, to_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankQuery,
+    Binary, BlockInfo, ContractInfoResponse, ContractResult, CosmosMsg, CustomQuery, Empty, GovMsg,
+    IbcMsg, IbcQuery, Querier, QuerierResult, QuerierWrapper, QueryRequest, Record, Storage,
+    SupplyResponse, SystemError, SystemResult, WasmQuery,
+};
+use osmosis_std::types::cosmos::bank::v1beta1::{
+    QueryAllBalancesRequest, QueryAllBalancesResponse, QueryBalanceRequest, QueryBalanceResponse,
+    QuerySupplyOfRequest, QuerySupplyOfResponse,
+};
+use osmosis_std::types::cosmwasm::wasm::v1::{
+    CodeInfoResponse, ContractInfo, QueryCodeResponse, QueryContractInfoRequest,
+    QueryContractInfoResponse, QuerySmartContractStateRequest, QuerySmartContractStateResponse,
 };
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -25,6 +34,10 @@ use crate::staking::{Distribution, DistributionKeeper, StakeKeeper, Staking, Sta
 use crate::stargate::{Stargate, StargateKeeper, StargateMsg};
 use crate::transactions::transactional;
 use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
+use crate::{
+    QUERY_ALL_BALANCES_PATH, QUERY_BALANCE_PATH, QUERY_SUPPLY_PATH, QUERY_WASM_CODE_INFO_PATH,
+    QUERY_WASM_CONTRACT_INFO_PATH, QUERY_WASM_CONTRACT_SMART_PATH,
+};
 
 pub fn next_block(block: &mut BlockInfo) {
     block.time = block.time.plus_seconds(5);
@@ -60,7 +73,7 @@ pub struct App<
     Gov = FailingModule<GovMsg, Empty, Empty>,
     Stargate = StargateKeeper<Empty, Empty>,
 > {
-    router: RefCell<Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>>,
+    pub router: RefCell<Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>>,
     api: Api,
     storage: RefCell<Storage>,
     block: BlockInfo,
@@ -307,7 +320,7 @@ impl<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, Starga
     /// Also it is possible to completely abandon trait bounding here which would not be bad idea,
     /// however it might make the message on build creepy in many cases, so as for properly build
     /// `App` we always want `Wasm` to be `Wasm`, some checks are done early.
-    pub fn with_wasm<C: Module, NewWasm: Wasm<C::ExecT, C::QueryT>>(
+    pub fn with_wasm<ExecC, QueryC: CustomQuery, NewWasm: Wasm<ExecC, QueryC>>(
         self,
         wasm: NewWasm,
     ) -> AppBuilder<BankT, ApiT, StorageT, CustomT, NewWasm, StakingT, DistrT, IbcT, GovT, StargateT>
@@ -931,7 +944,7 @@ where
 pub struct Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate> {
     // this can remain crate-only as all special functions are wired up to app currently
     // we need to figure out another format for wasm, as some like sudo need to be called after init
-    pub(crate) wasm: Wasm,
+    pub wasm: Wasm,
     // these must be pub so we can initialize them (super user) on build
     pub bank: Bank,
     pub custom: Custom,
@@ -1093,16 +1106,125 @@ where
             QueryRequest::Custom(req) => self.custom.query(api, storage, &querier, block, req),
             QueryRequest::Staking(req) => self.staking.query(api, storage, &querier, block, req),
             QueryRequest::Ibc(req) => self.ibc.query(api, storage, &querier, block, req),
-            QueryRequest::Stargate { path, data } => self.stargate.query(
-                api,
-                storage,
-                &querier,
-                block,
-                StargateMsg {
-                    type_url: path,
-                    value: data,
-                },
-            ),
+            QueryRequest::Stargate { path, data } => {
+                // Handle bank and wasm queries and pass the rest on to the stargate handler
+                // If for any reason we want to support any of the other modules in App, e.g
+                // staking, we need to add them here. This is because when you try to register
+                // a module that is also part of the router, the router and the stargate module
+                // will hold different versions of the same module, due to constraints in the
+                // borrow system. This is not a problem if the module is state less, i.e. all
+                // state is stored in the storage, like BankKeeper. But if the module is stateful,
+                // like WasmKeeper then the codes HashMaps will end up out of sync. Therefore
+                // decided to handle stargate messages for all internal modules here and only
+                // passing the rest on to the stargate module.
+                match path.as_str() {
+                    // Bank queries
+                    QUERY_ALL_BALANCES_PATH => {
+                        let msg: QueryAllBalancesRequest = data.try_into()?;
+                        let bin_res = self.query(
+                            api,
+                            storage,
+                            block,
+                            BankQuery::AllBalances {
+                                address: msg.address,
+                            }
+                            .into(),
+                        )?;
+
+                        let bank_res: AllBalanceResponse = from_binary(&bin_res)?;
+
+                        let res = QueryAllBalancesResponse {
+                            balances: bank_res
+                                .amount
+                                .into_iter()
+                                .map(|c| c.into())
+                                .collect::<Vec<_>>(),
+                            pagination: None,
+                        };
+                        Ok(to_binary(&res)?)
+                    }
+                    QUERY_BALANCE_PATH => {
+                        let req: QueryBalanceRequest = data.try_into()?;
+                        let bin_res = self.query(
+                            api,
+                            storage,
+                            block,
+                            BankQuery::Balance {
+                                address: req.address,
+                                denom: req.denom,
+                            }
+                            .into(),
+                        )?;
+
+                        let res: BalanceResponse = from_binary(&bin_res)?;
+                        let res = QueryBalanceResponse {
+                            balance: Some(res.amount.into()),
+                        };
+
+                        Ok(to_binary(&res)?)
+                    }
+                    QUERY_SUPPLY_PATH => {
+                        let req: QuerySupplyOfRequest = data.try_into()?;
+                        let req = BankQuery::Supply { denom: req.denom };
+
+                        let bin_res = self.query(api, storage, block, req.into())?;
+
+                        let res: SupplyResponse = from_binary(&bin_res)?;
+                        let res = QuerySupplyOfResponse {
+                            amount: Some(res.amount.into()),
+                        };
+
+                        Ok(to_binary(&res)?)
+                    }
+                    // Wasm module queries
+                    QUERY_WASM_CONTRACT_SMART_PATH => {
+                        let req: QuerySmartContractStateRequest = data.try_into()?;
+                        let query = WasmQuery::Smart {
+                            contract_addr: req.address,
+                            msg: req.query_data.into(),
+                        };
+                        let bin_res = self.query(api, storage, block, query.into())?;
+
+                        let res = QuerySmartContractStateResponse {
+                            data: bin_res.into(),
+                        };
+                        Ok(to_binary(&res)?)
+                    }
+                    QUERY_WASM_CONTRACT_INFO_PATH => {
+                        let req: QueryContractInfoRequest = data.try_into()?;
+                        let query = WasmQuery::ContractInfo {
+                            contract_addr: req.address.clone(),
+                        };
+                        let bin_res = self.query(api, storage, block, query.into())?;
+
+                        let res: ContractInfoResponse = from_binary(&bin_res)?;
+                        let res = QueryContractInfoResponse {
+                            address: req.address,
+                            contract_info: Some(ContractInfo {
+                                code_id: res.code_id,
+                                creator: res.creator,
+                                admin: res.admin.unwrap_or_default(),
+                                label: "".to_string(),
+                                created: None,
+                                ibc_port_id: res.ibc_port.unwrap_or_default(),
+                                extension: None,
+                            }),
+                        };
+                        Ok(to_binary(&res)?)
+                    }
+                    // The rest of all stargate queries go to the stargate module
+                    _ => self.stargate.query(
+                        api,
+                        storage,
+                        &querier,
+                        block,
+                        StargateMsg {
+                            type_url: path,
+                            value: data,
+                        },
+                    ),
+                }
+            }
             _ => unimplemented!(),
         }
     }
@@ -1211,6 +1333,7 @@ where
     QueryC: CustomQuery + DeserializeOwned + 'static,
 {
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
+        println!("RouterQuerier::raw_query");
         let request: QueryRequest<QueryC> = match from_slice(bin_request) {
             Ok(v) => v,
             Err(e) => {
