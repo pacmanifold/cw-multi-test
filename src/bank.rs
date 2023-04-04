@@ -1,15 +1,11 @@
 use anyhow::{bail, Result as AnyResult};
 use itertools::Itertools;
-use osmosis_std::types::cosmos::bank::v1beta1::{
-    QueryAllBalancesRequest, QueryAllBalancesResponse, QueryBalanceRequest, QueryBalanceResponse,
-    QuerySupplyOfRequest, QuerySupplyOfResponse,
-};
+
 use schemars::JsonSchema;
 
 use cosmwasm_std::{
-    coin, from_binary, to_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg,
-    BankQuery, Binary, BlockInfo, Coin, Event, Order, Querier, StdResult, Storage, SupplyResponse,
-    Uint128,
+    coin, to_binary, Addr, AllBalanceResponse, Api, BalanceResponse, BankMsg, BankQuery, Binary,
+    BlockInfo, Coin, Event, Order, Querier, StdResult, Storage, SupplyResponse, Uint128,
 };
 use cw_storage_plus::Map;
 use cw_utils::NativeBalance;
@@ -18,7 +14,6 @@ use crate::app::CosmosRouter;
 use crate::executor::AppResponse;
 use crate::module::Module;
 use crate::prefixed_storage::{prefixed, prefixed_read};
-use crate::StargateQueryHandler;
 
 const BALANCES: Map<&Addr, NativeBalance> = Map::new("balances");
 

@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
@@ -17,8 +17,8 @@ use osmosis_std::types::cosmos::bank::v1beta1::{
     QuerySupplyOfRequest, QuerySupplyOfResponse,
 };
 use osmosis_std::types::cosmwasm::wasm::v1::{
-    CodeInfoResponse, ContractInfo, QueryCodeResponse, QueryContractInfoRequest,
-    QueryContractInfoResponse, QuerySmartContractStateRequest, QuerySmartContractStateResponse,
+    ContractInfo, QueryContractInfoRequest, QueryContractInfoResponse,
+    QuerySmartContractStateRequest, QuerySmartContractStateResponse,
 };
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -35,8 +35,8 @@ use crate::stargate::{Stargate, StargateKeeper, StargateMsg};
 use crate::transactions::transactional;
 use crate::wasm::{ContractData, Wasm, WasmKeeper, WasmSudo};
 use crate::{
-    QUERY_ALL_BALANCES_PATH, QUERY_BALANCE_PATH, QUERY_SUPPLY_PATH, QUERY_WASM_CODE_INFO_PATH,
-    QUERY_WASM_CONTRACT_INFO_PATH, QUERY_WASM_CONTRACT_SMART_PATH,
+    QUERY_ALL_BALANCES_PATH, QUERY_BALANCE_PATH, QUERY_SUPPLY_PATH, QUERY_WASM_CONTRACT_INFO_PATH,
+    QUERY_WASM_CONTRACT_SMART_PATH,
 };
 
 pub fn next_block(block: &mut BlockInfo) {
