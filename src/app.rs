@@ -76,7 +76,7 @@ pub struct App<
     pub router: RefCell<Router<Bank, Custom, Wasm, Staking, Distr, Ibc, Gov, Stargate>>,
     api: Api,
     storage: RefCell<Storage>,
-    block: BlockInfo,
+    block: RefCell<BlockInfo>,
 }
 
 fn no_init<BankT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, StargateT>(
@@ -158,7 +158,11 @@ where
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
         self.router
             .borrow()
-            .querier(&self.api, self.storage.borrow().deref(), &self.block)
+            .querier(
+                &self.api,
+                self.storage.borrow().deref(),
+                &self.block.borrow(),
+            )
             .raw_query(bin_request)
     }
 }
@@ -729,7 +733,7 @@ impl<BankT, ApiT, StorageT, CustomT, WasmT, StakingT, DistrT, IbcT, GovT, Starga
         let app = App {
             router: RefCell::new(router),
             api: self.api,
-            block: self.block,
+            block: RefCell::new(self.block),
             storage: RefCell::new(self.storage),
         };
         app.init_modules(init_fn);
@@ -842,18 +846,19 @@ where
     GovT: Gov,
     StargateT: Stargate<CustomT::ExecT, CustomT::QueryT>,
 {
-    pub fn set_block(&mut self, block: BlockInfo) {
-        self.block = block;
+    pub fn set_block(&self, block: BlockInfo) {
+        self.block.replace(block);
     }
 
     // this let's use use "next block" steps that add eg. one height and 5 seconds
-    pub fn update_block<F: Fn(&mut BlockInfo)>(&mut self, action: F) {
-        action(&mut self.block);
+    pub fn update_block<F: Fn(&mut BlockInfo)>(&self, action: F) {
+        action(self.block.borrow_mut().deref_mut());
+        // self.block.replace_with(action);
     }
 
     /// Returns a copy of the current block_info
     pub fn block_info(&self) -> BlockInfo {
-        self.block.clone()
+        self.block.borrow().clone()
     }
 
     /// Simple helper so we get access to all the QuerierWrapper helpers,
@@ -884,9 +889,13 @@ where
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
             msgs.into_iter()
                 .map(|msg| {
-                    router
-                        .borrow()
-                        .execute(api, write_cache, block, sender.clone(), msg)
+                    router.borrow().execute(
+                        api,
+                        write_cache,
+                        block.borrow().deref(),
+                        sender.clone(),
+                        msg,
+                    )
                 })
                 .collect()
         })
@@ -915,7 +924,7 @@ where
                 contract_addr.into(),
                 write_cache,
                 router.borrow().deref(),
-                block,
+                block.borrow().deref(),
                 msg,
             )
         })
@@ -936,7 +945,9 @@ where
         } = self;
 
         transactional(storage.borrow_mut().deref_mut(), |write_cache, _| {
-            router.borrow().sudo(api, write_cache, block, msg)
+            router
+                .borrow()
+                .sudo(api, write_cache, block.borrow().deref(), msg)
         })
     }
 }
@@ -1394,13 +1405,15 @@ mod test {
 
     #[test]
     fn update_block() {
-        let mut app = App::default();
+        let app = App::default();
 
-        let BlockInfo { time, height, .. } = app.block;
+        let old_block = app.block_info();
+        let BlockInfo { time, height, .. } = old_block;
+
         app.update_block(next_block);
 
-        assert_eq!(time.plus_seconds(5), app.block.time);
-        assert_eq!(height + 1, app.block.height);
+        assert_eq!(time.plus_seconds(5), app.block.borrow().time);
+        assert_eq!(height + 1, app.block.borrow().height);
     }
 
     #[test]
@@ -2095,7 +2108,13 @@ mod test {
         };
         app.router
             .borrow()
-            .execute(&app.api, &mut cache, &app.block, owner.clone(), msg.into())
+            .execute(
+                &app.api,
+                &mut cache,
+                &app.block.borrow(),
+                owner.clone(),
+                msg.into(),
+            )
             .unwrap();
 
         // shows up in cache
@@ -2112,7 +2131,7 @@ mod test {
             };
             app.router
                 .borrow()
-                .execute(&app.api, cache2, &app.block, owner, msg.into())
+                .execute(&app.api, cache2, &app.block.borrow(), owner, msg.into())
                 .unwrap();
 
             // shows up in 2nd cache
