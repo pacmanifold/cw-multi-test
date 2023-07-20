@@ -600,13 +600,14 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
 name = "osmosis-std"
-version = "0.13.2"
-source = "git+https://github.com/apollodao/osmosis-rust.git?rev=a438e6b477ae75de538af3926847a689477d29f1#a438e6b477ae75de538af3926847a689477d29f1"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fa46d2ad5ae738572887974e000934374ce3546b820505c0ee19ca708e49622"
 dependencies = [
  "chrono",
  "cosmwasm-std",
  "osmosis-std-derive",
- "prost 0.11.8",
+ "prost 0.11.9",
  "prost-types",
  "schemars",
  "serde",
@@ -615,11 +616,13 @@ dependencies = [
 
 [[package]]
 name = "osmosis-std-derive"
-version = "0.13.2"
-source = "git+https://github.com/apollodao/osmosis-rust.git?rev=a438e6b477ae75de538af3926847a689477d29f1#a438e6b477ae75de538af3926847a689477d29f1"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11c2ba5535743617d6f44ae8d572d064fabab6d06ffcf403512f89c58954dbe9"
 dependencies = [
  "itertools",
  "proc-macro2",
+ "prost-types",
  "quote",
  "syn",
 ]
@@ -679,12 +682,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e48e50df39172a3e7eb17e14642445da64996989bc212b583015435d39a58537"
+checksum = "0b82eaa1d779e9a4bc1c3217db8ffbeabaae1dca241bf70183242128d48681cd"
 dependencies = [
  "bytes",
- "prost-derive 0.11.8",
+ "prost-derive 0.11.9",
 ]
 
 [[package]]
@@ -702,9 +705,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ea9b0f8cbe5e15a8a042d030bd96668db28ecb567ec37d691971ff5731d2b1b"
+checksum = "e5d2d8d10f3c6ded6da8b05b5fb3b8a5082514344d56c9f871412d29b4e075b4"
 dependencies = [
  "anyhow",
  "itertools",
@@ -715,11 +718,11 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "379119666929a1afd7a043aa6cf96fa67a6dce9af60c88095a4686dbce4c9c88"
+checksum = "213622a1460818959ac1181aaeb2dc9c7f63df720db7d788b3e24eacd1983e13"
 dependencies = [
- "prost 0.11.8",
+ "prost 0.11.9",
 ]
 
 [[package]]

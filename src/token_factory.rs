@@ -391,6 +391,7 @@ mod tests {
                     }
                     .into(),
                 ),
+                mint_to_address: sender.to_string(),
             }
             .into(),
         };
@@ -463,6 +464,7 @@ mod tests {
                     }
                     .into(),
                 ),
+                burn_from_address: sender.to_string(),
             }
             .into(),
         };
