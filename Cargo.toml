@@ -1,5 +1,5 @@
 [package]
-name = "cw-multi-test"
+name = "apollo-cw-multi-test"
 version = "1.2.0"
 authors = [
     "Ethan Frey <ethanfrey@users.noreply.github.com>",
