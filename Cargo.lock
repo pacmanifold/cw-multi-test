@@ -624,8 +624,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "osmosis-std"
-version = "0.13.2"
-source = "git+https://github.com/apollodao/osmosis-rust.git?rev=a438e6b477ae75de538af3926847a689477d29f1#a438e6b477ae75de538af3926847a689477d29f1"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fa46d2ad5ae738572887974e000934374ce3546b820505c0ee19ca708e49622"
 dependencies = [
  "chrono",
  "cosmwasm-std",
@@ -639,11 +640,13 @@ dependencies = [
 
 [[package]]
 name = "osmosis-std-derive"
-version = "0.13.2"
-source = "git+https://github.com/apollodao/osmosis-rust.git?rev=a438e6b477ae75de538af3926847a689477d29f1#a438e6b477ae75de538af3926847a689477d29f1"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11c2ba5535743617d6f44ae8d572d064fabab6d06ffcf403512f89c58954dbe9"
 dependencies = [
  "itertools 0.10.5",
  "proc-macro2",
+ "prost-types",
  "quote",
  "syn 1.0.109",
 ]

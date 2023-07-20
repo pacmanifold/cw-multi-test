@@ -33,7 +33,7 @@ serde = "1.0.203"
 sha2 = "0.10.8"
 thiserror = "1.0.61"
 
-osmosis-std = { git = "https://github.com/apollodao/osmosis-rust.git", rev = "cd3e84201b08d168ee848acbebc85b1da7cab3fa" }
+osmosis-std = "0.16.1"
 regex       = "1.7.3"
 
 [dev-dependencies]
