@@ -48,22 +48,24 @@ dependencies = [
 
 [[package]]
 name = "apollo-cw-multi-test"
-version = "0.16.2"
+version = "1.2.0"
 dependencies = [
  "anyhow",
+ "bech32 0.11.0",
  "cosmwasm-std",
- "cw-storage-plus 1.0.1",
+ "cw-storage-plus",
  "cw-utils",
  "derivative",
- "itertools",
- "k256",
+ "hex",
+ "hex-literal",
+ "itertools 0.13.0",
+ "once_cell",
  "osmosis-std",
- "prost 0.9.0",
+ "prost 0.12.6",
  "regex",
  "schemars",
  "serde",
- "serde_json",
- "test-case",
+ "sha2 0.10.8",
  "thiserror",
 ]
 
@@ -292,29 +294,6 @@ dependencies = [
  "rand_core 0.5.1",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "apollo-cw-multi-test"
-version = "1.2.0"
-dependencies = [
- "anyhow",
- "bech32 0.11.0",
- "cosmwasm-std",
- "cw-storage-plus",
- "cw-utils",
- "derivative",
- "hex",
- "hex-literal",
- "itertools 0.13.0",
- "once_cell",
- "osmosis-std",
- "prost 0.12.6",
- "regex",
- "schemars",
- "serde",
- "sha2 0.10.8",
- "thiserror",
 ]
 
 [[package]]
@@ -645,9 +624,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "osmosis-std"
-version = "0.16.1"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fa46d2ad5ae738572887974e000934374ce3546b820505c0ee19ca708e49622"
+checksum = "798fade51443a0e07eb25b59a11b320b9e8f03e6e8fbe14c520258f04742fe13"
 dependencies = [
  "chrono",
  "cosmwasm-std",
@@ -661,9 +640,9 @@ dependencies = [
 
 [[package]]
 name = "osmosis-std-derive"
-version = "0.16.1"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11c2ba5535743617d6f44ae8d572d064fabab6d06ffcf403512f89c58954dbe9"
+checksum = "f47f0b2f22adb341bb59e5a3a1b464dde033181954bd055b9ae86d6511ba465b"
 dependencies = [
  "itertools 0.10.5",
  "proc-macro2",
