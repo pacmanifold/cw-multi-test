@@ -1,6 +1,6 @@
 [package]
 name        = "apollo-cw-multi-test"
-version     = "0.16.2"
+version     = "0.17.0"
 authors     = ["Ethan Frey <ethanfrey@users.noreply.github.com>"]
 edition     = "2021"
 description = "Test helpers for multi-contract interactions"
@@ -36,8 +36,7 @@ derivative = "2"
 # We specify them to tighten their version requirements so that builds with `-Zminimal-versions` work.
 # Once we bump `cosmwasm-*` deps to a version after `1.1.5`, we can remove these.
 k256 = { version = "0.11.1", features = ["ecdsa"] }
-# osmosis-std = "0.15.0"
-osmosis-std = "0.16.1"
+osmosis-std = "0.19.2"
 regex       = "1.7.3"
 
 [dev-dependencies]
