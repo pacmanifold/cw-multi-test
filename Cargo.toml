@@ -33,7 +33,7 @@ serde = "1.0.203"
 sha2 = "0.10.8"
 thiserror = "1.0.61"
 
-osmosis-std = "0.19.2"
+osmosis-std = "0.22.0"
 regex       = "1.7.3"
 
 [dev-dependencies]
