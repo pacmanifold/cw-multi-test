@@ -150,6 +150,34 @@ where
     CustomT: Module,
     WasmT: Wasm<CustomT::ExecT, CustomT::QueryT>,
 {
+    pub fn construct(
+        api: ApiT,
+        block: BlockInfo,
+        storage: StorageT,
+        bank: BankT,
+        wasm: WasmT,
+        custom: CustomT,
+        staking: StakingT,
+        distribution: DistrT,
+        ibc: IbcT,
+        gov: GovT,
+        stargate: StargateT,
+    ) -> Self {
+        Self {
+            api,
+            block,
+            storage,
+            bank,
+            wasm,
+            custom,
+            staking,
+            distribution,
+            ibc,
+            gov,
+            stargate,
+        }
+    }
+
     /// Overwrites the default wasm executor.
     ///
     /// At this point it is needed that new wasm implements some `Wasm` trait, but it doesn't need
