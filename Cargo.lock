@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "apollo-cw-multi-test"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "anyhow",
  "cosmwasm-std",
