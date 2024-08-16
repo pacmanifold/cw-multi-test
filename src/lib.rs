@@ -6,6 +6,7 @@
 //!
 //! To understand the design of this module, please refer to `../DESIGN.md`
 
+mod addresses;
 mod app;
 mod bank;
 #[allow(clippy::type_complexity)]
@@ -24,6 +25,7 @@ mod token_factory;
 mod transactions;
 mod wasm;
 
+pub use crate::addresses::{AddressGenerator, MockAddressGenerator, SimpleAddressGenerator};
 pub use crate::app::{
     custom_app, next_block, App, AppBuilder, BasicApp, BasicAppBuilder, CosmosRouter, Router,
     SudoMsg,
@@ -34,7 +36,7 @@ pub use crate::executor::{AppResponse, Executor};
 pub use crate::ibc::Ibc;
 pub use crate::module::{FailingModule, Module};
 pub use crate::staking::{DistributionKeeper, StakeKeeper, Staking, StakingInfo, StakingSudo};
-pub use crate::wasm::{AddressGenerator, Wasm, WasmKeeper, WasmSudo};
+pub use crate::wasm::{Wasm, WasmKeeper, WasmSudo};
 pub use stargate::*;
 
 pub const QUERY_ALL_BALANCES_PATH: &str = "/cosmos.bank.v1beta1.Query/AllBalances";

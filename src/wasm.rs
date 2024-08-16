@@ -21,6 +21,7 @@ use crate::error::Error;
 use crate::executor::AppResponse;
 use crate::prefixed_storage::{prefixed, prefixed_read, PrefixedStorage, ReadonlyPrefixedStorage};
 use crate::transactions::transactional;
+use crate::{AddressGenerator, SimpleAddressGenerator};
 use cosmwasm_std::testing::mock_wasmd_attr;
 
 use anyhow::{bail, Context, Result as AnyResult};
@@ -105,33 +106,12 @@ pub struct WasmKeeper<ExecC, QueryC> {
     generator: Box<dyn AddressGenerator>,
 }
 
-pub trait AddressGenerator {
-    fn next_address(&self, storage: &mut dyn Storage) -> Addr;
-}
-
-#[derive(Debug)]
-struct SimpleAddressGenerator();
-
-impl AddressGenerator for SimpleAddressGenerator {
-    fn next_address(&self, storage: &mut dyn Storage) -> Addr {
-        let count = CONTRACTS
-            .range_raw(
-                &prefixed_read(storage, NAMESPACE_WASM),
-                None,
-                None,
-                Order::Ascending,
-            )
-            .count();
-        Addr::unchecked(format!("contract{}", count))
-    }
-}
-
 impl<ExecC, QueryC> Default for WasmKeeper<ExecC, QueryC> {
     fn default() -> Self {
         Self {
             codes: HashMap::default(),
             _p: std::marker::PhantomData,
-            generator: Box::new(SimpleAddressGenerator()),
+            generator: Box::new(SimpleAddressGenerator {}),
         }
     }
 }
@@ -450,6 +430,7 @@ where
                 }
 
                 let contract_addr = self.register_contract(
+                    api,
                     storage,
                     code_id as usize,
                     sender.clone(),
@@ -708,6 +689,7 @@ where
     /// These are separated into two steps to have cleaner return values.
     pub fn register_contract(
         &self,
+        api: &dyn Api,
         storage: &mut dyn Storage,
         code_id: usize,
         creator: Addr,
@@ -718,8 +700,11 @@ where
         if !self.codes.contains_key(&code_id) {
             bail!("Cannot init contract with unregistered code id");
         }
-
-        let addr = self.generator.next_address(storage);
+        // generate a new contract address
+        let instance_id = self.instance_count(storage) as u64;
+        let addr = self
+            .generator
+            .contract_address(api, storage, code_id as u64, instance_id)?;
 
         let info = ContractData {
             code_id,
@@ -914,6 +899,18 @@ where
             .save(&mut prefixed(storage, NAMESPACE_WASM), address, contract)
             .map_err(Into::into)
     }
+
+    /// Returns the number of all contract instances.
+    fn instance_count(&self, storage: &dyn Storage) -> usize {
+        CONTRACTS
+            .range_raw(
+                &prefixed_read(storage, NAMESPACE_WASM),
+                None,
+                None,
+                Order::Ascending,
+            )
+            .count()
+    }
 }
 
 // TODO: replace with code in utils
@@ -960,8 +957,8 @@ fn execute_response(data: Option<Binary>) -> Option<Binary> {
 mod test {
     use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
     use cosmwasm_std::{
-        coin, from_slice, to_vec, BankMsg, Coin, CosmosMsg, Empty, GovMsg, IbcMsg, IbcQuery,
-        StdError,
+        coin, from_slice, to_vec, BankMsg, CanonicalAddr, Coin, CosmosMsg, Empty, GovMsg, IbcMsg,
+        IbcQuery, StdError,
     };
 
     use crate::app::Router;
@@ -1011,6 +1008,7 @@ mod test {
         transactional(&mut wasm_storage, |cache, _| {
             // cannot register contract with unregistered codeId
             keeper.register_contract(
+                &api,
                 cache,
                 code_id + 1,
                 Addr::unchecked("foobar"),
@@ -1024,6 +1022,7 @@ mod test {
         let contract_addr = transactional(&mut wasm_storage, |cache, _| {
             // we can register a new instance of this code
             keeper.register_contract(
+                &api,
                 cache,
                 code_id,
                 Addr::unchecked("foobar"),
@@ -1102,6 +1101,7 @@ mod test {
 
         let contract_addr = keeper
             .register_contract(
+                &api,
                 &mut wasm_storage,
                 code_id,
                 Addr::unchecked("foobar"),
@@ -1137,6 +1137,7 @@ mod test {
 
         let contract_addr = keeper
             .register_contract(
+                &api,
                 &mut wasm_storage,
                 code_id,
                 Addr::unchecked("foobar"),
@@ -1189,6 +1190,7 @@ mod test {
 
         let contract_addr = keeper
             .register_contract(
+                &api,
                 &mut cache,
                 code_id,
                 Addr::unchecked("foobar"),
@@ -1303,6 +1305,7 @@ mod test {
         let contract1 = transactional(&mut wasm_storage, |cache, _| {
             let contract = keeper
                 .register_contract(
+                    &api,
                     cache,
                     code_id,
                     Addr::unchecked("foobar"),
@@ -1342,6 +1345,7 @@ mod test {
             // create contract 2 and use it
             let contract2 = keeper
                 .register_contract(
+                    &api,
                     cache,
                     code_id,
                     Addr::unchecked("foobar"),
@@ -1376,6 +1380,7 @@ mod test {
                 // create a contract on level 2
                 let contract3 = keeper
                     .register_contract(
+                        &api,
                         cache2,
                         code_id,
                         Addr::unchecked("foobar"),
@@ -1467,6 +1472,7 @@ mod test {
 
         let contract_addr = keeper
             .register_contract(
+                &api,
                 &mut wasm_storage,
                 code_id,
                 Addr::unchecked("creator"),
@@ -1557,6 +1563,7 @@ mod test {
 
     #[test]
     fn by_default_uses_simple_address_generator() {
+        let api = MockApi::default();
         let mut keeper = WasmKeeper::<Empty, Empty>::new();
         let code_id = keeper.store_code(payout::contract());
 
@@ -1564,6 +1571,7 @@ mod test {
 
         let contract_addr = keeper
             .register_contract(
+                &api,
                 &mut wasm_storage,
                 code_id,
                 Addr::unchecked("foobar"),
@@ -1580,20 +1588,44 @@ mod test {
     }
 
     struct TestAddressGenerator {
-        addr_to_return: Addr,
+        address: Addr,
+        predictable_address: Addr,
     }
+
     impl AddressGenerator for TestAddressGenerator {
-        fn next_address(&self, _: &mut dyn Storage) -> Addr {
-            self.addr_to_return.clone()
+        fn contract_address(
+            &self,
+            _api: &dyn Api,
+            _storage: &mut dyn Storage,
+            _code_id: u64,
+            _instance_id: u64,
+        ) -> AnyResult<Addr> {
+            Ok(self.address.clone())
+        }
+
+        fn predictable_contract_address(
+            &self,
+            _api: &dyn Api,
+            _storage: &mut dyn Storage,
+            _code_id: u64,
+            _instance_id: u64,
+            _checksum: &[u8],
+            _creator: &CanonicalAddr,
+            _salt: &[u8],
+        ) -> AnyResult<Addr> {
+            Ok(self.predictable_address.clone())
         }
     }
 
     #[test]
     fn can_use_custom_address_generator() {
+        let api = MockApi::default();
         let expected_addr = Addr::unchecked("new_test_addr");
-        let mut keeper =
-            WasmKeeper::<Empty, Empty>::new_with_custom_address_generator(TestAddressGenerator {
-                addr_to_return: expected_addr.clone(),
+        let expected_predictable_addr = api.addr_make("predictable_address");
+        let mut keeper: WasmKeeper<Empty, Empty> =
+            WasmKeeper::new_with_custom_address_generator(TestAddressGenerator {
+                address: expected_addr.clone(),
+                predictable_address: expected_predictable_addr.clone(),
             });
         let code_id = keeper.store_code(payout::contract());
 
@@ -1601,6 +1633,7 @@ mod test {
 
         let contract_addr = keeper
             .register_contract(
+                &api,
                 &mut wasm_storage,
                 code_id,
                 Addr::unchecked("foobar"),
